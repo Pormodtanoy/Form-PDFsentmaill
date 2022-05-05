@@ -1,0 +1,110 @@
+//*เครดิต ครูอภิวัฒน์ : https://www.youtube.com/watch?v=fn8mGMxwLYs *//
+//สำหรับฟอร์ม
+function onFormSubmit() {
+  
+  var token1 = ["token1"];//โทเค่นไลน์ผู้มีสิทธิ์อนุมัติ
+  
+  var form = FormApp.openById('id form'); 
+  var fRes = form.getResponses();
+  var formResponse = fRes[fRes.length - 1];
+  var itemResponses = formResponse.getItemResponses();
+  
+  var ss = SpreadsheetApp.openById('id sheet');
+  var sheet = ss.getSheetByName('การตอบแบบฟอร์ม 1');
+  var row = sheet.getActiveRange().getLastRow()+1;
+
+//ให้ไปสร้างลิสต์อนุมัติในชีตแผ่น 2 เพื่อดึงค่ามาแสดงที่ชีตแผ่น 1
+   var dynamicList = ss.getSheetByName('แผ่น2').getRange('A1:A3');
+   var rangeRule = SpreadsheetApp.newDataValidation().requireValueInRange(dynamicList).build();
+   sheet.getRange(row,6).setDataValidation(rangeRule); //คอลัมน์ที่ใช้อนุมัติ คือ 6
+
+  //ส่งอีเมลถึงผู้มีสิทธิ์อนุมัติ
+  var recipients = 'ระบุอีเมลที่ส่ง';
+  var subject = 'ส่งเรื่องขออนุมัติเข้าอบรม '+sheet.getName(); //ชื่อเรื่อง
+  var body = 'คลิกลิ้งค์เพื่ออนุมัติการเข้าอบรม ' + ss.getUrl();//เนื้อหา
+  
+var msg = itemResponses[0].getResponse() + ' : ส่งเรื่องขออนุมัติการเข้าอบรม' +'\n'+ ss.getUrl();;
+
+  sendLineNotify(msg,token1);
+ //MailApp.sendEmail(recipients, subject, body);
+
+}
+
+function sendLineNotify(message,token) {
+  var options = {
+    "method": "post",
+    "payload": "message=" + message,
+    "headers": {
+    "Authorization": "Bearer " + token }
+};
+
+UrlFetchApp.fetch("https://notify-api.line.me/api/notify", options);
+}
+
+//สำหรับชีต
+function approve() {
+   var token2 = "token2";//โทเค่นไลน์กลุ่มการขออนุมัติ
+   var ss = SpreadsheetApp.getActiveSpreadsheet();
+   var sheet = ss.getActiveSheet();
+   var row = sheet.getActiveRange().getRow();
+   var cellvalue = sheet.getActiveCell().getValue().toString();
+   var sheetName = sheet.getName();   
+
+   //ส่งอีเมลผู้ขออนุญาตไปอบรม
+ //  var recipients = "อีเมล";
+ //  var subject = 'การอนุมัติเข้าอบรม '+sheet.getName(); //ชื่อเรื่อง
+ //  var body = sheet.getName() + 'ท่านสามารถดูผลการอนุมัติเข้าอบรมได้ที่ ' + ss.getUrl();//เนื้อหาอีเมล
+   
+   var date = Utilities.formatDate(new Date(), "GMT+7", "dd/MM/");
+   var year = Number(Utilities.formatDate(new Date(), "GMT+7", "yyyy"));
+   var thaiyear = Number(Utilities.formatDate(new Date(), "GMT+7", "yyyy"))+543;
+   //var time = Utilities.formatDate(new Date(), "GMT+7", "HH:mm");
+  
+   var data1 = sheet.getRange(row, 3,row).getValue();//ชื่อ สกุล
+   var data2 = sheet.getRange(row, 4,row).getValue();//สถานที่อบรม
+   var data3 = sheet.getRange(row, 5,row).getDisplayValue();//วันที่อบรม
+
+   var message = 'แจ้งผลการสมัครเข้าอบรม: '+cellvalue+'\n'+'ชื่อ-สกุลผู้เข้าอบรม:'+data1+'\n'+'สถานที่อบรม:'+data2+'\n'+'วันที่เข้าอบรม:'+data3+'\n'+'วันที่อนุมัติ คือ:'+ date+year;
+
+     if (cellvalue == 'อนุมัติ' || cellvalue == 'ไม่อนุมัติ' ) {
+        sendLineNotify(message, token2);
+        createBulkPDFs ();
+      }
+    }
+
+function createBulkPDFs () {
+  const pdfFolder = DriveApp.getFolderById("id folder pdf");
+  const tempFolder = DriveApp.getFolderById("id folder temp");
+  const docFile = DriveApp.getFileById("id doc");
+  
+  const currentSheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  const row = currentSheet.getActiveCell().getRow();
+  const data = currentSheet.getRange(row, 1,1,currentSheet.getLastColumn()).getValues()[0]; 
+  createPDF(data[2], data[3],data[4], data[5], data[2], docFile, tempFolder, pdfFolder);
+
+}
+
+function createPDF (Name,Place,date,approve,pdfName,docFile,tempFolder,pdfFolder) {
+  const tempFile = docFile.makeCopy(tempFolder); 
+  const tempDocFile = DocumentApp.openById(tempFile.getId()); 
+  const body = tempDocFile.getBody(); 
+  
+  body.replaceText("{ชื่อ สกุล}", Name); 
+  body.replaceText("{สถานที่อบรม}", Place); 
+  body.replaceText("{วันที่อบรม}", date); 
+  body.replaceText("{ผลการอนุมัติ}", approve);
+  
+  tempDocFile.saveAndClose(); 
+  const pdfContentBlob = tempFile.getAs(MimeType.PDF); 
+  const pdfFile = pdfFolder.createFile(pdfContentBlob).setName(pdfName);
+  pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.COMMENT);
+  
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+  var row = sheet.getActiveRange().getLastRow();
+  var email = sheet.getRange(row,2).getValue().toString(); //คอลัมน์อีเมล คือคอลัมน์ที่ 2
+
+  MailApp.sendEmail(email, 'การอนุมัติการไปอบรม', 'ดาวน์โหลดเอกสารได้ที่\n'+pdfFile.getUrl());
+  tempFolder.removeFile(tempFile);
+
+}
+
